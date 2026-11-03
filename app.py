@@ -3,6 +3,7 @@
 import calendar
 import hashlib
 import hmac
+import re
 import secrets
 import uuid
 from datetime import date, datetime, timedelta
@@ -135,14 +136,25 @@ def aviso(msg: str):
 # ----------------------------------------------------------------------------
 # Banco de dados
 # ----------------------------------------------------------------------------
+def url_banco() -> str:
+    """Lê o DATABASE_URL e normaliza para postgresql+psycopg2://
+
+    Aceita a URL pura ou colada do painel do Neon com sobras, como
+    psql 'postgresql://...' ou com espaços/aspas em volta.
+    """
+    bruto = str(st.secrets.get("DATABASE_URL", ""))
+    achou = re.search(r"postgres(?:ql)?(?:\+\w+)?://[^\s'\"]+", bruto)
+    if not achou:
+        st.error("DATABASE_URL não encontrado ou inválido nos secrets. "
+                 "Ele precisa começar com postgresql:// (copie a connection string do Neon).")
+        st.stop()
+    # Força o driver psycopg2 (o SQLAlchemy 2.1 passou a usar o psycopg 3 como padrão)
+    return re.sub(r"^postgres(?:ql)?(?:\+\w+)?://", "postgresql+psycopg2://", achou.group(0))
+
+
 @st.cache_resource
 def engine():
-    # Força o driver psycopg2 (o SQLAlchemy 2.1 passou a usar o psycopg 3 como padrão)
-    url = st.secrets["DATABASE_URL"]
-    for prefixo in ("postgres://", "postgresql://"):
-        if url.startswith(prefixo):
-            url = "postgresql+psycopg2://" + url[len(prefixo):]
-    eng = create_engine(url, pool_pre_ping=True, pool_recycle=300)
+    eng = create_engine(url_banco(), pool_pre_ping=True, pool_recycle=300)
     with eng.begin() as c:
         c.execute(text(SCHEMA))
     return eng
